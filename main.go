@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"net"
@@ -20,7 +21,12 @@ func main() {
 		panic(err)
 	}
 
-	conn, err := net.Dial("tcp", fmt.Sprintf("%s:%s", url.Host, url.Port))
+	var conn io.ReadWriteCloser
+	if url.Scheme == "https" {
+		conn, err = tls.Dial("tcp", fmt.Sprintf("%s:%s", url.Host, url.Port), nil)
+	} else {
+		conn, err = net.Dial("tcp", fmt.Sprintf("%s:%s", url.Host, url.Port))
+	}
 	if err != nil {
 		panic(err)
 	}
@@ -78,8 +84,7 @@ func main() {
 	}
 
 	res.Body = string(body)
-
-	fmt.Printf("%+v", res)
+	renderHTML(res.Body)
 }
 
 type Response struct {
@@ -125,8 +130,25 @@ func parseURL(urlStr string) (*URL, error) {
 		url.Host = hostAndPort[0]
 		url.Port = hostAndPort[1]
 	} else {
-		url.Port = "80"
+		if url.Scheme == "https" {
+			url.Port = "443"
+		} else {
+			url.Port = "80"
+		}
 	}
 
 	return &url, nil
+}
+
+func renderHTML(content string) {
+	inTag := false
+	for _, ch := range content {
+		if ch == '<' {
+			inTag = true
+		} else if ch == '>' {
+			inTag = false
+		} else if !inTag {
+			fmt.Printf("%s", string(ch))
+		}
+	}
 }
