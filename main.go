@@ -36,6 +36,17 @@ func main() {
 		return
 	}
 
+	if url.Scheme == "data" {
+		if url.MediaType == "text/plain" {
+			fmt.Printf(url.Data)
+		} else if url.MediaType == "text/html" {
+			renderHTML(url.Data)
+		} else {
+			panic(fmt.Sprintf("unsuppoted media type '%s'", url.MediaType))
+		}
+		return
+	}
+
 	var conn io.ReadWriteCloser
 	if url.Scheme == "https" {
 		conn, err = tls.Dial("tcp", fmt.Sprintf("%s:%s", url.Host, url.Port), nil)
@@ -119,15 +130,28 @@ type URL struct {
 	Host   string
 	Port   string
 	Path   string
+
+	// Scheme = data
+	MediaType string
+	Data      string
 }
 
 func parseURL(urlStr string) (*URL, error) {
 	var url URL
 
-	schemeAndRest := strings.Split(urlStr, "://")
+	schemeAndRest := strings.Split(urlStr, ":")
 	if len(schemeAndRest) == 2 {
 		url.Scheme = schemeAndRest[0]
 		urlStr = schemeAndRest[1]
+		if urlStr[0] == '/' && urlStr[1] == '/' {
+			urlStr = urlStr[2:]
+		}
+
+		if url.Scheme == "data" {
+			mediaTypeAndData := strings.Split(urlStr, ",")
+			url.MediaType = mediaTypeAndData[0]
+			url.Data = mediaTypeAndData[1]
+		}
 	} else {
 		url.Scheme = "http"
 	}
@@ -161,13 +185,31 @@ func parseURL(urlStr string) (*URL, error) {
 
 func renderHTML(content string) {
 	inTag := false
-	for _, ch := range content {
-		if ch == '<' {
+	for i := 0; i < len(content); i++ {
+		ch := content[i]
+
+		switch ch {
+		case '<':
 			inTag = true
-		} else if ch == '>' {
+		case '>':
 			inTag = false
-		} else if !inTag {
-			fmt.Printf("%s", string(ch))
+		case '&':
+			chToPrint := '&'
+			if i+4 <= len(content) {
+				possibleEscapeStr := content[i : i+4]
+				if possibleEscapeStr == "&lt;" {
+					chToPrint = '<'
+					i += 3
+				} else if possibleEscapeStr == "&gt;" {
+					chToPrint = '>'
+					i += 3
+				}
+			}
+			fmt.Printf("%s", string(chToPrint))
+		default:
+			if !inTag {
+				fmt.Printf("%s", string(ch))
+			}
 		}
 	}
 }
