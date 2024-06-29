@@ -11,21 +11,38 @@ import (
 )
 
 func main() {
-	if len(os.Args) != 2 {
+	inputUrl := ""
+	if len(os.Args) >= 2 {
+		inputUrl = os.Args[1]
+	} else if len(os.Args) == 1 {
+		inputUrl = "file:///home/batman/test.html"
+	} else {
 		fmt.Fprintf(os.Stderr, "Usage: ./puppy <url>\n\n")
 		return
 	}
 
-	url, err := parseURL(os.Args[1])
+	url, err := parseURL(inputUrl)
 	if err != nil {
 		panic(err)
+	}
+
+	if url.Scheme == "file" {
+		buf, err := os.ReadFile(url.Path)
+		if err != nil {
+			panic(err)
+		}
+
+		fmt.Print(string(buf))
+		return
 	}
 
 	var conn io.ReadWriteCloser
 	if url.Scheme == "https" {
 		conn, err = tls.Dial("tcp", fmt.Sprintf("%s:%s", url.Host, url.Port), nil)
-	} else {
+	} else if url.Scheme == "http" {
 		conn, err = net.Dial("tcp", fmt.Sprintf("%s:%s", url.Host, url.Port))
+	} else {
+		panic("unsupported url schema")
 	}
 	if err != nil {
 		panic(err)
@@ -33,8 +50,10 @@ func main() {
 	defer conn.Close()
 
 	var req string
-	req += fmt.Sprintf("GET %s HTTP/1.0\r\n", url.Path)
+	req += fmt.Sprintf("GET %s HTTP/1.1\r\n", url.Path)
 	req += fmt.Sprintf("Host: %s\r\n", url.Host)
+	req += "Connection: close\r\n"
+	req += "User-Agent: ugly-puppy\r\n"
 	req += "\r\n"
 
 	_, err = conn.Write([]byte(req))
