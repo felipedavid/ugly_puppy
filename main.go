@@ -61,7 +61,7 @@ func main() {
 		}
 		line := string(buf)
 
-		if line == "\r\n" {
+		if line == "" {
 			break
 		}
 
