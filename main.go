@@ -15,7 +15,7 @@ func main() {
 	if len(os.Args) >= 2 {
 		inputUrl = os.Args[1]
 	} else if len(os.Args) == 1 {
-		inputUrl = "file:///home/batman/test.html"
+		inputUrl = "file:///home/batman/work/ugly_puppy/test.html"
 	} else {
 		fmt.Fprintf(os.Stderr, "Usage: ./puppy <url>\n\n")
 		return
@@ -32,15 +32,36 @@ func main() {
 			panic(err)
 		}
 
-		fmt.Print(string(buf))
+		if url.viewSource {
+			_, err = os.Stdout.Write(buf)
+			if err != nil {
+				panic(err)
+			}
+		} else {
+			err = renderHTML(os.Stdout, buf)
+			if err != nil {
+				panic(err)
+			}
+		}
+
 		return
 	}
 
 	if url.Scheme == "data" {
 		if url.MediaType == "text/plain" {
-			fmt.Printf(url.Data)
+			fmt.Printf("%v", url.Data)
 		} else if url.MediaType == "text/html" {
-			renderHTML(url.Data)
+			if url.viewSource {
+				_, err = os.Stdout.Write(url.Data)
+				if err != nil {
+					panic(err)
+				}
+			} else {
+				err = renderHTML(os.Stdout, url.Data)
+				if err != nil {
+					panic(err)
+				}
+			}
 		} else {
 			panic(fmt.Sprintf("unsuppoted media type '%s'", url.MediaType))
 		}
@@ -113,8 +134,18 @@ func main() {
 		panic(err)
 	}
 
-	res.Body = string(body)
-	renderHTML(res.Body)
+	res.Body = body
+	if url.viewSource {
+		_, err = os.Stdout.Write(url.Data)
+		if err != nil {
+			panic(err)
+		}
+	} else {
+		err = renderHTML(os.Stdout, url.Data)
+		if err != nil {
+			panic(err)
+		}
+	}
 }
 
 type Response struct {
@@ -122,7 +153,7 @@ type Response struct {
 	Status      string
 	Explanation string
 	Headers     map[string]string
-	Body        string
+	Body        []byte
 }
 
 type URL struct {
@@ -131,13 +162,21 @@ type URL struct {
 	Port   string
 	Path   string
 
+	viewSource bool
+
 	// Scheme = data
 	MediaType string
-	Data      string
+	Data      []byte
 }
 
 func parseURL(urlStr string) (*URL, error) {
 	var url URL
+
+	viewSourcePrefix := "view-source:"
+	if strings.HasPrefix(urlStr, viewSourcePrefix) {
+		url.viewSource = true
+		urlStr = urlStr[len(viewSourcePrefix):]
+	}
 
 	schemeAndRest := strings.Split(urlStr, ":")
 	if len(schemeAndRest) == 2 {
@@ -150,7 +189,7 @@ func parseURL(urlStr string) (*URL, error) {
 		if url.Scheme == "data" {
 			mediaTypeAndData := strings.Split(urlStr, ",")
 			url.MediaType = mediaTypeAndData[0]
-			url.Data = mediaTypeAndData[1]
+			url.Data = []byte(mediaTypeAndData[1])
 		}
 	} else {
 		url.Scheme = "http"
@@ -183,8 +222,10 @@ func parseURL(urlStr string) (*URL, error) {
 	return &url, nil
 }
 
-func renderHTML(content string) {
+func renderHTML(w io.Writer, content []byte) error {
 	inTag := false
+	buf := make([]byte, 0, len(content))
+
 	for i := 0; i < len(content); i++ {
 		ch := content[i]
 
@@ -194,22 +235,29 @@ func renderHTML(content string) {
 		case '>':
 			inTag = false
 		case '&':
-			chToPrint := '&'
+			chToPrint := byte('&')
 			if i+4 <= len(content) {
 				possibleEscapeStr := content[i : i+4]
-				if possibleEscapeStr == "&lt;" {
+				if string(possibleEscapeStr) == "&lt;" {
 					chToPrint = '<'
 					i += 3
-				} else if possibleEscapeStr == "&gt;" {
+				} else if string(possibleEscapeStr) == "&gt;" {
 					chToPrint = '>'
 					i += 3
 				}
 			}
-			fmt.Printf("%s", string(chToPrint))
+			buf = append(buf, chToPrint)
 		default:
 			if !inTag {
-				fmt.Printf("%s", string(ch))
+				buf = append(buf, content[i])
 			}
 		}
 	}
+
+	_, err := w.Write(buf)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
